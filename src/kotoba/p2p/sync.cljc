@@ -8,7 +8,11 @@
                               deterministic fanout (GossipSub semantics);
     - `kotoba.net.bitswap`  — `commits-since` delta over the commit log
                               (WantSince semantics);
-    - `commit-dag.core`     — chain walk + tamper/seq verification;
+    - `commit-dag.core`     — chain walk + tamper/seq verification (the
+                              upstream repo is `kotoba-lang/chain` as of
+                              ADR-2607050800; this pin predates that
+                              rename, so the ns at this SHA is still
+                              literally `commit-dag.core`);
     - `kotoba-client`       — CID-verified block ingest and the generic
                               tag-42 missing-blocks walk (`ipld-hydrate`).
 
@@ -21,7 +25,7 @@
   Purity contract: every handler is `(node, msg) -> {:node node'
   :effects [{:to peer-id :msg m} ...]}`. The ONLY side effects go through
   the node's injected `:store` ports (`put!`/`get-fn` — the same
-  convention prolly-tree/commit-dag use); the transport that delivers
+  convention prolly-tree/chain use); the transport that delivers
   `:effects` is entirely the host's (see `kotoba.p2p.loopback` for the
   in-memory reference transport). No sockets, no crypto handshake, no
   wire framing here — a QUIC/WebRTC/WebTransport adapter is a host
@@ -76,7 +80,7 @@
 
 (defn- commit-log
   "The local commit log for `graph` as bitswap-shaped `[{:seq :cid} ...]`
-  (oldest first), derived from the commit-dag chain — no separate log is
+  (oldest first), derived from the chain — no separate log is
   maintained."
   [node graph]
   (if-let [{:keys [head-cid]} (head node graph)]
@@ -133,7 +137,7 @@
 
 (defn- handle-want-since
   "Serve the requester the commit-log delta past their seq (bitswap
-  WantSince semantics over the commit-dag-derived log)."
+  WantSince semantics over the chain-derived log)."
   [node {:keys [graph-cid since-seq origin]}]
   (let [entries (bitswap/commits-since (commit-log node graph-cid)
                                        {:since-seq since-seq})
