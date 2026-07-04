@@ -1,9 +1,12 @@
 {:paths ["src"]
  ;; Composition, not reimplementation: gossip/bitswap SEMANTICS come from
- ;; kotoba-lang/net, chain walk/verify from commit-dag, CID-verified ingest +
- ;; the generic tag-42 hydrate walk from kotoba-client (ipld transitively).
+ ;; kotoba-lang/net, chain walk/verify from chain (this pin predates the
+ ;; commit-dag -> chain rename, ADR-2607050800 -- the coordinate below
+ ;; already points at the renamed repo, GitHub redirects the old name),
+ ;; CID-verified ingest + the generic tag-42 hydrate walk from kotoba-client
+ ;; (ipld transitively).
  :deps {io.github.kotoba-lang/net {:git/sha "20d99d1e0ed5ca4e13d00c383b7d522dd7f7bb18"}
-        io.github.kotoba-lang/commit-dag {:git/sha "05cc0473dce76539edab46d9fb8cf785f6ff6117"}
+        io.github.kotoba-lang/chain {:git/sha "05cc0473dce76539edab46d9fb8cf785f6ff6117"}
         io.github.kotoba-lang/kotoba-client {:git/sha "92cbadab8e17eef963d948306b46b2fa54874106"}}
  :aliases
  {:test {:extra-paths ["test"]

@@ -11,7 +11,7 @@ Composition, not reimplementation:
 | layer | supplies |
 |---|---|
 | [`kotoba-lang/net`](https://github.com/kotoba-lang/net) | gossip routing semantics (content-hash dedup, deterministic fanout) + bitswap `commits-since` delta |
-| [`kotoba-lang/commit-dag`](https://github.com/kotoba-lang/commit-dag) | chain walk + tamper/seq verification |
+| [`kotoba-lang/chain`](https://github.com/kotoba-lang/chain) (renamed from `commit-dag`, ADR-2607050800) | chain walk + tamper/seq verification |
 | [`kotoba-lang/kotoba-client`](https://github.com/kotoba-lang/kotoba-client) | CID-verified block ingest + the generic tag-42 missing-blocks walk |
 
 The tag-42 migration ([`kotoba-lang/ipld`](https://github.com/kotoba-lang/ipld))
@@ -29,7 +29,7 @@ Five message types, all handled by the pure step
 :head-announce ──gossip fanout + dedup──▶ every mesh peer
       │ (announced seq > local seq)
       ▼
-:want-since ──▶ origin           bitswap WantSince over the commit-dag log
+:want-since ──▶ origin           bitswap WantSince over the chain log
       ▼
 :commits ◀── delta entries + head
       ▼
