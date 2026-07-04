@@ -8,7 +8,7 @@
  :aliases
  {:test {:extra-paths ["test"]
          ;; e2e tests sync a REAL kotobase-peer commit chain (kotobase-engine
-         ;; until ADR-2607050600) and read it back on the receiver via
+         ;; until ADR-2607050700) and read it back on the receiver via
          ;; prolly-tree -- these two are test-only.
          :extra-deps {io.github.cognitect-labs/test-runner
                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}
