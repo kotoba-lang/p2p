@@ -9,7 +9,7 @@
          '[clojure.java.shell :refer [sh]]
          '[clojure.java.io :as io])
 
-;; -A:test so test-only deps (kotobase-engine, prolly-tree) are on the
+;; -A:test so test-only deps (kotobase-peer, prolly-tree) are on the
 ;; cljs path too -- the e2e tests need them.
 (def cp (-> (sh "clojure" "-A:test" "-Spath") :out str/trim))
 (def dirs (->> (str/split cp #":")
