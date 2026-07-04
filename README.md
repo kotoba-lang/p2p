@@ -86,7 +86,7 @@ Tracked follow-ups, not silently omitted:
 ## Test
 
 The e2e suite syncs a **real kotobase-peer commit chain** (`kotobase-engine`
-until ADR-2607050600 renamed it; transact → commit! ×2) between in-memory
+until ADR-2607050700 renamed it; transact → commit! ×2) between in-memory
 nodes: two-node convergence + local
 re-read via prolly-tree on the receiver's store, three-node line topology
 (hop-by-hop propagation through re-announce), stale/duplicate announce
