@@ -69,14 +69,22 @@ WebTransport / HTTP long-poll) implements the same two duties — deliver
 `:effects`, feed incoming messages to `sync/handle` — as host glue outside
 this repo.
 
+## Signed head announces
+
+`new-node` optionally takes `:sign-announce` (fn [msg] -> msg', applied to
+every self-originated announce before it's gossiped) and
+`:verify-announce?` (fn [msg] -> boolean, checked before a peer's announce
+is trusted enough to chase with `want-since` — an unverified announce is
+still relayed, gossip-style, just not acted on locally). Both default to
+a no-op (`identity` / `(constantly true)`), so 2-arity `new-node` callers
+are unaffected. This namespace carries no crypto/identity scheme of its
+own — `kotoba-lang/kotoba-rad`'s `kotoba-rad.announce` provides a
+did:key/sigref-based pair of hooks that plug in here directly.
+
 ## What is NOT in this landing
 
 Tracked follow-ups, not silently omitted:
 
-- **Signed head announces** — proving an announce came from the graph
-  owner is CACAO's job (same follow-up kotoba-client carries for IPNS
-  records). Until then an announce is only as trustworthy as
-  `verify-chain` + CID checks make it (safety holds; freshness does not).
 - **Real wire transports** and peer discovery (Kademlia-equivalent) —
   host adapters over the effect/message seam.
 - **Prolly-tree range diff** — `:want-blocks` ships whole missing subtrees;

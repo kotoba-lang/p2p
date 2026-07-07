@@ -36,9 +36,18 @@
   `verify-chain` passes over fully-local blocks. A peer that withholds
   or corrupts blocks can stall sync (liveness), never corrupt state
   (safety) — the same split the browser read-plane ADR records: trust
-  lives in the CID, not the transport. Head-record *signing* (proving an
-  announce came from the graph owner) is CACAO's job and a tracked
-  follow-up, mirroring kotoba-client's IPNS-verification gap."
+  lives in the CID, not the transport.
+
+  Head-record *signing* (proving an announce came from the graph owner)
+  is pluggable, not built in: `new-node` takes optional `:sign-announce`
+  (applied to every self-originated announce before it's gossiped) and
+  `:verify-announce?` (checked before a peer's announce is trusted enough
+  to chase with `want-since` — an unverified announce is still relayed,
+  gossip-style, just not acted on locally) hooks. Both default to a no-op
+  (`identity`/`(constantly true)`), so existing callers are unaffected.
+  This namespace deliberately carries no crypto or identity scheme of its
+  own — see e.g. `kotoba-lang/kotoba-rad`'s `kotoba-rad.announce` for a
+  concrete did:key/sigref-based pair of hooks that plug in here."
   (:require [kotoba.net.gossip :as gossip]
             [kotoba.net.bitswap :as bitswap]
             [commit-dag.core :as cd]
@@ -53,13 +62,23 @@
 (defn new-node
   "A sync node: `id` names this peer, `store` is the injected block store
   `{:put! (cid bytes -> _) :get-fn (cid -> bytes-or-nil)}`.
-  `:graphs` maps graph-id -> {:head-cid <cid> :seq <n> [:pending {...}]}."
-  [id store]
-  {:id id
-   :peers (gossip/empty-peer-state)
-   :seen (gossip/empty-seen-cache 1024)
-   :graphs {}
-   :store store})
+  `:graphs` maps graph-id -> {:head-cid <cid> :seq <n> [:pending {...}]}.
+
+  `opts` (optional, 3-arity): `:sign-announce` (fn [msg] -> msg') applied
+  to every self-originated announce before it's gossiped (e.g. to attach
+  a signature field); `:verify-announce?` (fn [msg] -> boolean) checked
+  before a PEER's announce is trusted enough to chase with `want-since`.
+  Both default to a no-op so 2-arity callers are unaffected."
+  ([id store] (new-node id store {}))
+  ([id store {:keys [sign-announce verify-announce?]
+              :or {sign-announce identity verify-announce? (constantly true)}}]
+   {:id id
+    :peers (gossip/empty-peer-state)
+    :seen (gossip/empty-seen-cache 1024)
+    :graphs {}
+    :store store
+    :sign-announce sign-announce
+    :verify-announce? verify-announce?}))
 
 (defn add-peer
   "Register `peer-id` as reachable, subscribed to `topics` (graph-ids)."
@@ -90,10 +109,11 @@
 
 ;; ── announce (self-originated gossip) ─────────────────────────────────────────
 (defn- announce-msg [node graph]
-  (let [{:keys [head-cid seq]} (head node graph)]
-    {:type :head-announce :graph graph
-     :head-cid head-cid :seq seq
-     :origin (:id node) :from (:id node)}))
+  (let [{:keys [head-cid seq]} (head node graph)
+        msg {:type :head-announce :graph graph
+             :head-cid head-cid :seq seq
+             :origin (:id node) :from (:id node)}]
+    ((:sign-announce node identity) msg)))
 
 (defn announce
   "Gossip our local head for `graph` to the mesh. Returns {:node :effects}.
@@ -124,7 +144,8 @@
                   forward)
         local-seq (get (head node graph) :seq -1)
         stale? (or (<= seq local-seq)
-                   (= head-cid (:head-cid (head node graph))))]
+                   (= head-cid (:head-cid (head node graph)))
+                   (not ((:verify-announce? node (constantly true)) msg)))]
     {:node node'
      :effects (if stale?
                 fwd
