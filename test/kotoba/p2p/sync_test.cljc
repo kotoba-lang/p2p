@@ -7,7 +7,7 @@
             [kotoba.p2p.sync :as sync]
             [kotoba.p2p.loopback :as lb]
             [kotobase-engine.core :as eng]
-            [commit-dag.core :as cd]
+            [chain.core :as cd]
             [ipld.core :as ipld]
             [prolly-tree.core :as pt]))
 

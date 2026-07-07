@@ -8,11 +8,10 @@
                               deterministic fanout (GossipSub semantics);
     - `kotoba.net.bitswap`  — `commits-since` delta over the commit log
                               (WantSince semantics);
-    - `commit-dag.core`     — chain walk + tamper/seq verification (the
-                              upstream repo is `kotoba-lang/chain` as of
-                              ADR-2607050800; this pin predates that
-                              rename, so the ns at this SHA is still
-                              literally `commit-dag.core`);
+    - `chain.core`          — chain walk + tamper/seq verification
+                              (`kotoba-lang/chain`, renamed from
+                              `commit-dag`, ADR-2607050800; this repo
+                              tracks a current post-rename SHA);
     - `kotoba-client`       — CID-verified block ingest and the generic
                               tag-42 missing-blocks walk (`ipld-hydrate`).
 
@@ -50,7 +49,7 @@
   concrete did:key/sigref-based pair of hooks that plug in here."
   (:require [kotoba.net.gossip :as gossip]
             [kotoba.net.bitswap :as bitswap]
-            [commit-dag.core :as cd]
+            [chain.core :as cd]
             [kotoba-client.core :as kc]
             [kotoba-client.ipld-hydrate :as ih]))
 
