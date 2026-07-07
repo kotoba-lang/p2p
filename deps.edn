@@ -1,12 +1,23 @@
 {:paths ["src"]
  ;; Composition, not reimplementation: gossip/bitswap SEMANTICS come from
- ;; kotoba-lang/net, chain walk/verify from chain (this pin predates the
- ;; commit-dag -> chain rename, ADR-2607050800 -- the coordinate below
- ;; already points at the renamed repo, GitHub redirects the old name),
- ;; CID-verified ingest + the generic tag-42 hydrate walk from kotoba-client
- ;; (ipld transitively).
+ ;; kotoba-lang/net, chain walk/verify from chain, CID-verified ingest +
+ ;; the generic tag-42 hydrate walk from kotoba-client (ipld transitively).
+ ;;
+ ;; chain pin note (2026-07-07): previously pinned a pre-rename SHA whose
+ ;; own source still used the old commit-dag.core namespace internally
+ ;; (ADR-2607050800 renamed the coordinate but that SHA predated the
+ ;; internal file rename too). That looked harmless in isolation, but
+ ;; broke composition for real: any consumer also depending on chain at a
+ ;; POST-rename SHA (e.g. kotoba-lang/kotoba-rad) forces tools.deps to
+ ;; resolve one version for the whole classpath, and picking the newer one
+ ;; made this repo's own `(:require [commit-dag.core :as cd])` fail to
+ ;; resolve -- caught by combining kotoba-rad + kotoba-lang/p2p on one
+ ;; classpath for real, not from either repo's own isolated test suite.
+ ;; Now pinned to the same SHA kotoba-rad uses, source updated to require
+ ;; chain.core (API-compatible: commit!/chain/head/verify-chain unchanged
+ ;; by the rename).
  :deps {io.github.kotoba-lang/net {:git/sha "20d99d1e0ed5ca4e13d00c383b7d522dd7f7bb18"}
-        io.github.kotoba-lang/chain {:git/sha "05cc0473dce76539edab46d9fb8cf785f6ff6117"}
+        io.github.kotoba-lang/chain {:git/sha "60eafc3346d600b5f3d3ffd24022864841ab44ae"}
         io.github.kotoba-lang/kotoba-client {:git/sha "92cbadab8e17eef963d948306b46b2fa54874106"}}
  :aliases
  {:test {:extra-paths ["test"]
