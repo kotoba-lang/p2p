@@ -31,4 +31,8 @@
                       io.github.kotoba-lang/prolly-tree
                       {:git/sha "8da6d1e17fe8efe9294055f5ec242c439329de89"}}
          :main-opts ["-m" "cognitect.test-runner"]
-         :exec-fn cognitect.test-runner.api/test}}}
+         :exec-fn cognitect.test-runner.api/test}
+       ;; clj-kondo as a Clojars lib (no Homebrew/system install needed).
+       :lint {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2024.11.14"}}
+         :main-opts ["-m" "clj-kondo.main" "--lint" "src" "test"
+                     "--fail-level" "error"]}}}
