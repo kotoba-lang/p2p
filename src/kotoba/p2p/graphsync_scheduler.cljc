@@ -4,8 +4,13 @@
   Admission creates a read-free IPLD selection cursor. Scheduler steps advance
   it under an explicit CPU budget and read at most one new CID-verified block,
   so cancellation stops both future wire chunks and future storage reads."
-  (:require [ipld.graph :as graph]
+  (:require [ipld.core :as ipld]
+            [ipld.graph :as graph]
+            [ipld.link :as link]
+            [ipld.value :as value]
             [kotoba.p2p.graphsync :as gs]))
+
+(def checkpoint-extension "kotoba.graphsync/checkpoint/1")
 
 (defn- invalid! [message data]
   (throw (ex-info message (assoc data :type :graphsync/invalid-scheduler))))
@@ -39,6 +44,48 @@
   "Content-valued UUID byte vectors for active requests."
   [scheduler]
   (set (keys (:active scheduler))))
+
+(defn checkpoint-request
+  "Create content-addressed checkpoint bytes and a GraphSync extension value
+  for one active request. The caller decides where to persist `:bytes`."
+  [scheduler request-id]
+  (let [key (vec request-id)
+        entry (get-in scheduler [:active key])]
+    (when-not entry
+      (invalid! "graphsync scheduler: cannot checkpoint unknown request"
+                {:id key}))
+    (let [envelope {:request-id key
+                    :root (get-in entry [:request :root])
+                    :selector (get-in entry [:request :selector])
+                    :limits (get-in entry [:cursor :limits])
+                    :cursor-bytes (graph/checkpoint-cursor (:cursor entry))}
+          bytes (value/encode-value envelope)
+          cid (ipld/cid bytes)]
+      {:cid cid :bytes bytes
+       :extensions {checkpoint-extension (link/link cid)}})))
+
+(defn restore-request
+  "Restore an active request from CID-bound checkpoint bytes. Request id,
+  root, selector, and traversal limits must all match the admitted request."
+  [scheduler request-id checkpoint-cid bytes]
+  (let [key (vec request-id)
+        entry (get-in scheduler [:active key])]
+    (when-not entry
+      (invalid! "graphsync scheduler: cannot restore unknown request" {:id key}))
+    (when-not (= checkpoint-cid (ipld/cid bytes))
+      (invalid! "graphsync scheduler: checkpoint CID mismatch"
+                {:id key :expected checkpoint-cid :actual (ipld/cid bytes)}))
+    (let [envelope (value/decode-value bytes)
+          cursor (graph/restore-cursor (:cursor-bytes envelope))
+          expected {:request-id key
+                    :root (get-in entry [:request :root])
+                    :selector (get-in entry [:request :selector])
+                    :limits (get-in entry [:cursor :limits])}
+          actual (select-keys envelope [:request-id :root :selector :limits])]
+      (when-not (= expected actual)
+        (invalid! "graphsync scheduler: checkpoint request binding mismatch"
+                  {:expected expected :actual actual}))
+      (assoc-in scheduler [:active key :cursor] cursor))))
 
 (defn- request-key [request]
   (vec (:id request)))
