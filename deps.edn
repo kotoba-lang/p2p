@@ -22,6 +22,8 @@
         io.github.kotoba-lang/chain {:git/sha "60eafc3346d600b5f3d3ffd24022864841ab44ae"}
         io.github.kotoba-lang/kotoba-client {:git/sha "92cbadab8e17eef963d948306b46b2fa54874106"}
         io.github.kotoba-lang/io-ipld {:git/sha "f6e0e59d0bd01d228eb46e92b57b1dab4a953b17"}
+        io.github.kotoba-lang/prolly-tree
+        {:git/sha "fab87b31175fb31d431200079107cb55e4aa85d3"}
         io.github.kotoba-lang/io-multiformats {:git/sha "e7ae323d3ccbb9aacc92edfd2f3dda20d9b90eed"}}
  :aliases
  {:test {:extra-paths ["test"]
@@ -31,9 +33,7 @@
          :extra-deps {io.github.cognitect-labs/test-runner
                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}
                       io.github.kotoba-lang/kotobase-peer
-                      {:git/sha "60d922b9c490546e8df2fa364e30f3fb25d50a59"}
-                      io.github.kotoba-lang/prolly-tree
-                      {:git/sha "8da6d1e17fe8efe9294055f5ec242c439329de89"}}
+                      {:git/sha "60d922b9c490546e8df2fa364e30f3fb25d50a59"}}
          :main-opts ["-m" "cognitect.test-runner"]
          :exec-fn cognitect.test-runner.api/test}
        ;; clj-kondo as a Clojars lib (no Homebrew/system install needed).

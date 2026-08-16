@@ -7,7 +7,15 @@
 
 (def config {:max-active 2 :max-blocks-per-message 1
              :max-block-bytes-per-message 4096
-             :max-traversal-work-per-step 32})
+             :max-traversal-work-per-step 32
+             :max-extensions 4
+             :extension-specs
+             {"window" {:phases #{:new :update}
+                        :validate (fn [value]
+                                    (when-not (and (map? value)
+                                                   (integer? (get value "blocks")))
+                                      (throw (ex-info "invalid window" {})))
+                                    value)}}})
 (def traversal-limits {:max-blocks 8 :max-bytes 4096
                        :max-depth 8 :max-matches 16})
 (def wire-limits {:max-message-bytes 65536 :max-requests 8
@@ -121,6 +129,8 @@
         request (new-request (request-id 0) root 1)]
     (is (thrown? #?(:clj Exception :cljs js/Error)
                  (scheduler/new-scheduler (assoc config :max-active 0))))
+    (is (thrown? #?(:clj Exception :cljs js/Error)
+                 (scheduler/new-scheduler (assoc config :max-extensions 0))))
     (let [tiny (scheduler/new-scheduler
                 (assoc config :max-block-bytes-per-message 1))
           admitted (scheduler/handle-message tiny #(get @store %)
@@ -128,6 +138,16 @@
           result (scheduler/step (:scheduler admitted) #(get @store %))]
       (is (= 32 (get-in result [:message :responses 0 :status])))
       (is (= :block-too-large (get-in result [:event :reason]))))
+    (testing "unregistered extensions are rejected at admission"
+      (let [request (assoc (new-request (request-id 96) root 1)
+                           :extensions {"ambient-authority" true})
+            result (scheduler/handle-message
+                    (scheduler/new-scheduler config) #(get @store %)
+                    {:requests [request]} traversal-limits)]
+        (is (= (:rejected gs/status)
+               (get-in result [:message :responses 0 :status])))
+        (is (= :graphsync/extension-rejected
+               (get-in result [:events 0 :reason])))))
     (let [admitted (scheduler/handle-message
                     (scheduler/new-scheduler config) #(get @store %)
                     {:requests [request]} traversal-limits)]

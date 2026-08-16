@@ -43,6 +43,7 @@
          :get-fn #(get @source %)
          :wire-limits wire-limits
          :scheduler-config {:max-active 4
+                            :max-extensions 4
                             :max-blocks-per-message 2
                             :max-block-bytes-per-message 65536
                             :max-traversal-work-per-step 32}

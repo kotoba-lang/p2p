@@ -41,6 +41,23 @@ block prefixes fail closed. Stream negotiation, multi-message scheduling,
 cancellation/update state, and extension semantics remain transport/runtime
 responsibilities; this does not claim a full go-graphsync engine.
 
+`kotoba.p2p.graphsync-prolly` defines the admitted
+`kotoba.graphsync/prolly-base-root/1` extension. A requester names the Prolly
+root it already holds as an IPLD Link; the responder walks the requested target
+root, skips CID-equal subtrees, and returns a root-first delta under mandatory
+responder-owned block, byte, and read budgets. The receiver checks the exact
+metadata/block set and rehashes every block before landing it, then proves
+completion by reading the target through its combined base + delta store. The
+extension changes transfer cost, not content identity or authorization.
+
+`kotoba.p2p.graphsync-extension` is the host-owned registry for additional
+extensions. A host registers each name with its allowed `:new`, `:update`, or
+`:response` phases and an IPLD-value validator, plus a mandatory maximum count.
+The scheduler admits only registered request/update values; unknown names,
+wrong phases, invalid values, and over-budget maps fail closed. Thus custom
+extensions remain open-ended without turning receipt of an arbitrary wire map
+into authority.
+
 `kotoba.p2p.graphsync-scheduler` adds the responder lifecycle above that wire
 codec: bounded active-request admission, acknowledgement, stable
 priority-ordering, block-count/byte-bounded chunks, partial/paused/full
@@ -158,12 +175,9 @@ unfinished parts of it:
   the host transport profile. `io-libp2p` supplies the current TCP/Noise/Yamux
   seam plus Kademlia protocol primitives; configured peer addresses remain a
   deployment responsibility.
-- **Optional GraphSync extensions beyond the checkpoint contract** — an
+- **Optional GraphSync extensions beyond the checkpoint and Prolly contracts** — an
   extension must define its own bounded semantics and admission policy before
   it is enabled; unknown extensions do not silently gain authority.
-- **Prolly-tree range diff** — `:want-blocks` can ship a whole missing subtree.
-  Structural diff between mostly-shared roots is a transfer optimization, not
-  a safety or convergence requirement.
 
 ## Test
 
