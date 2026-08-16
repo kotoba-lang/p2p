@@ -1,6 +1,7 @@
 (ns kotoba.p2p.graphsync-replication
   "Fail-closed checkpoint replication plans and verified availability receipts."
-  (:require [ipld.value :as value]))
+  (:require [ipld.core :as ipld]
+            [ipld.value :as value]))
 
 (def snapshot-version 1)
 
@@ -60,6 +61,44 @@
   (assoc-in tracker [:receipts cid replica-id]
             (assoc receipt :recorded-at-ms now-ms
                    :expires-at-ms (+ now-ms (get-in tracker [:config :receipt-ttl-ms])))))
+
+(declare qualification)
+
+(defn execute-effects
+  "Execute planned replication effects through `replicate-fn` and land only
+  matching, verified receipts. `replicate-fn` receives replica-id, CID, bytes,
+  and now-ms. Individual failures are returned and never count as receipts."
+  [tracker cid bytes effects now-ms replicate-fn verify-receipt-fn]
+  (when-not (= cid (ipld/cid bytes))
+    (invalid! "replication bytes do not match CID" {:cid cid :actual (ipld/cid bytes)}))
+  (when-not (fn? replicate-fn)
+    (invalid! "replication execution requires replicate-fn" {}))
+  (let [result
+        (reduce
+         (fn [{:keys [tracker receipts failures]} effect]
+           (let [replica-id (:replica-id effect)]
+             (try
+               (when-not (and (= :checkpoint/replicate (:effect effect))
+                              (= cid (:cid effect))
+                              (contains? (get-in tracker [:plans cid] #{}) replica-id))
+                 (invalid! "replication effect does not match plan"
+                           {:effect effect :cid cid}))
+               (let [receipt (replicate-fn replica-id cid bytes now-ms)]
+                 (when-not (and (map? receipt) (= cid (:cid receipt))
+                                (= replica-id (:replica-id receipt)))
+                   (invalid! "replica returned a mismatched receipt"
+                             {:effect effect :receipt receipt}))
+                 {:tracker (record-receipt tracker receipt now-ms verify-receipt-fn)
+                  :receipts (conj receipts receipt) :failures failures})
+               (catch #?(:clj Exception :cljs :default) error
+                 {:tracker tracker :receipts receipts
+                  :failures (conj failures
+                                  {:replica-id replica-id
+                                   :reason (or (:type (ex-data error))
+                                               :graphsync/replication-failed)})}))))
+         {:tracker tracker :receipts [] :failures []}
+         effects)]
+    (assoc result :qualification (qualification (:tracker result) cid now-ms))))
 
 (defn qualification
   "Return evidence, never an optimistic HA claim. Only distinct, unexpired,

@@ -68,6 +68,12 @@ only from planned, distinct replica identities after a host signature verifier
 accepts them. `qualification` is true only while the configured number of
 receipts remain unexpired. Candidate nodes, transfer attempts, duplicate
 receipts, or stale receipts never imply availability.
+`execute-effects` drives the planned transfers through a caller-owned
+`replicate-fn`, verifies that each returned receipt matches the effect, then
+lands it through the signature verifier. Per-replica transport failures remain
+explicit and cannot contribute to qualification. The adapter is transport
+neutral; an in-memory two-store integration test proves byte landing, not a
+live network or production HA deployment.
 
 Five message types, all handled by the pure step
 `(sync/handle node msg) → {:node node' :effects [{:to peer :msg m} …]}`:
