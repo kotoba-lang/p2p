@@ -6,7 +6,8 @@
             [kotoba.p2p.graphsync-scheduler :as scheduler]))
 
 (def config {:max-active 2 :max-blocks-per-message 1
-             :max-block-bytes-per-message 4096})
+             :max-block-bytes-per-message 4096
+             :max-traversal-work-per-step 32})
 (def traversal-limits {:max-blocks 8 :max-bytes 4096
                        :max-depth 8 :max-matches 16})
 (def wire-limits {:max-message-bytes 65536 :max-requests 8
@@ -36,20 +37,25 @@
   {:id id :type :new :root root :priority priority
    :selector recursive-selector})
 
-(deftest admission-acknowledges-and-chunks-partial-then-full
+(deftest admission-is-read-free-and-steps-partial-then-full
   (let [{:keys [store root blocks]} (fixture)
+        reads (atom [])
+        get-counted (fn [cid] (swap! reads conj cid) (get @store cid))
         request (new-request (request-id 0) root 3)
         admitted (scheduler/handle-message
-                  (scheduler/new-scheduler config) #(get @store %)
+                  (scheduler/new-scheduler config) get-counted
                   {:requests [request]} traversal-limits)
-        drained (scheduler/drain (:scheduler admitted) 4)
+        reads-at-admission (count @reads)
+        drained (scheduler/drain (:scheduler admitted) get-counted 5)
         messages (:messages drained)]
     (is (= 10 (get-in admitted [:message :responses 0 :status])))
-    (is (= [14 14 20] (mapv #(get-in % [:responses 0 :status]) messages)))
-    (is (= blocks (mapv #(get-in % [:blocks 0 :cid]) messages)))
+    (is (zero? reads-at-admission))
+    (is (= [14 14 14 20] (mapv #(get-in % [:responses 0 :status]) messages)))
+    (is (= blocks (mapv #(get-in % [:blocks 0 :cid]) (butlast messages))))
+    (is (= blocks @reads))
     (is (zero? (scheduler/active-count (:scheduler drained))))
     (testing "every emitted chunk remains a valid GraphSync wire message"
-      (is (= [14 14 20]
+      (is (= [14 14 14 20]
              (mapv #(-> %
                         (gs/encode-message wire-limits)
                         (gs/decode-message wire-limits)
@@ -68,7 +74,7 @@
                  {:requests [{:id (:id low) :type :update
                               :extensions {"window" {"blocks" 1}}}]}
                  traversal-limits)
-        first-step (scheduler/step (:scheduler updated))
+        first-step (scheduler/step (:scheduler updated) #(get @store %))
         cancelled (scheduler/handle-message
                    (:scheduler first-step) #(get @store %)
                    {:requests [{:id (:id high) :type :cancel}]}
@@ -102,9 +108,11 @@
       (is (= [:unknown-cancel :unknown-update]
              (mapv :reason (:events controlled)))))
     (let [missing (new-request (request-id 96) "bafyreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku" 1)
-          failed (scheduler/handle-message
-                  (scheduler/new-scheduler config) #(get @store %)
-                  {:requests [missing]} traversal-limits)]
+          admitted-missing (scheduler/handle-message
+                            (scheduler/new-scheduler config) #(get @store %)
+                            {:requests [missing]} traversal-limits)
+          failed (scheduler/step (:scheduler admitted-missing) #(get @store %))]
+      (is (= 10 (get-in admitted-missing [:message :responses 0 :status])))
       (is (= 34 (get-in failed [:message :responses 0 :status])))
       (is (zero? (scheduler/active-count (:scheduler failed)))))))
 
@@ -115,12 +123,48 @@
                  (scheduler/new-scheduler (assoc config :max-active 0))))
     (let [tiny (scheduler/new-scheduler
                 (assoc config :max-block-bytes-per-message 1))
-          result (scheduler/handle-message tiny #(get @store %)
-                                           {:requests [request]} traversal-limits)]
+          admitted (scheduler/handle-message tiny #(get @store %)
+                                             {:requests [request]} traversal-limits)
+          result (scheduler/step (:scheduler admitted) #(get @store %))]
       (is (= 32 (get-in result [:message :responses 0 :status])))
-      (is (= :block-too-large (get-in result [:events 0 :reason]))))
+      (is (= :block-too-large (get-in result [:event :reason]))))
     (let [admitted (scheduler/handle-message
                     (scheduler/new-scheduler config) #(get @store %)
                     {:requests [request]} traversal-limits)]
       (is (thrown? #?(:clj Exception :cljs js/Error)
-                   (scheduler/drain (:scheduler admitted) 2))))))
+                   (scheduler/drain (:scheduler admitted) #(get @store %) 2))))))
+
+(deftest cancellation-stops-future-storage-reads
+  (let [{:keys [store root]} (fixture)
+        reads (atom [])
+        get-counted (fn [cid] (swap! reads conj cid) (get @store cid))
+        request (new-request (request-id 0) root 1)
+        admitted (scheduler/handle-message
+                  (scheduler/new-scheduler config) get-counted
+                  {:requests [request]} traversal-limits)
+        first-step (scheduler/step (:scheduler admitted) get-counted)
+        reads-before-cancel (count @reads)
+        cancelled (scheduler/handle-message
+                   (:scheduler first-step) get-counted
+                   {:requests [{:id (:id request) :type :cancel}]}
+                   traversal-limits)
+        idle (scheduler/step (:scheduler cancelled) get-counted)]
+    (is (= 1 reads-before-cancel))
+    (is (= 35 (get-in cancelled [:message :responses 0 :status])))
+    (is (nil? (:message idle)))
+    (is (= reads-before-cancel (count @reads)))))
+
+(deftest traversal-work-budget-emits-paused-and-resumes
+  (let [{:keys [store root]} (fixture)
+        request (new-request (request-id 0) root 1)
+        scheduler (scheduler/new-scheduler
+                   (assoc config :max-traversal-work-per-step 1))
+        admitted (scheduler/handle-message scheduler #(get @store %)
+                                           {:requests [request]} traversal-limits)
+        root-step (scheduler/step (:scheduler admitted) #(get @store %))
+        paused (scheduler/step (:scheduler root-step) #(get @store %))
+        resumed (scheduler/step (:scheduler paused) #(get @store %))]
+    (is (= 14 (get-in root-step [:message :responses 0 :status])))
+    (is (= 15 (get-in paused [:message :responses 0 :status])))
+    (is (= :work-budget (get-in paused [:event :reason])))
+    (is (some? (:message resumed)))))
