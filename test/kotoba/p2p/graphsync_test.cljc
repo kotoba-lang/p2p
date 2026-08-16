@@ -66,6 +66,31 @@
     (is (every? true? (map (fn [a b] (bytes= (:bytes a) (:bytes b)))
                            (:blocks response) (:blocks decoded))))))
 
+(deftest recursive-selector-round-trips-and-fulfills-the-whole-linked-dag
+  (let [store (atom {})
+        put! (fn [cid bytes] (swap! store assoc cid bytes))
+        leaf (ipld/put-node! put! {"name" "leaf"})
+        middle (ipld/put-node! put! {"name" "middle" "child" (ipld/link leaf)})
+        root (ipld/put-node! put! {"name" "root" "child" (ipld/link middle)})
+        selector {:selector :explore-recursive
+                  :limit {:mode :none}
+                  :sequence {:selector :explore-union
+                             :members [{:selector :matcher}
+                                       {:selector :explore-all
+                                        :next {:selector :explore-recursive-edge}}]}}
+        request {:id (request-id) :type :new :root root :selector selector}
+        decoded-request (-> {:requests [request]}
+                            (gs/encode-frame wire-limits)
+                            (gs/decode-frame wire-limits)
+                            :requests first)
+        response (gs/fulfill-request #(get @store %) decoded-request traversal-limits)
+        decoded-response (gs/decode-message
+                          (gs/encode-message response wire-limits) wire-limits)]
+    (is (= selector (:selector decoded-request)))
+    (is (= [root middle leaf] (mapv :cid (:blocks response))))
+    (is (= [root middle leaf] (mapv :cid (:blocks decoded-response))))
+    (is (= 3 (count (get-in decoded-response [:responses 0 :metadata]))))))
+
 (deftest malformed-or-over-budget-wire-data-fails-closed
   (let [store (atom {})
         root (ipld/put-node! (fn [cid bytes] (swap! store assoc cid bytes)) {"v" 1})
