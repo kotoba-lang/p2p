@@ -13,6 +13,7 @@ Composition, not reimplementation:
 | [`kotoba-lang/net`](https://github.com/kotoba-lang/net) | gossip routing semantics (content-hash dedup, deterministic fanout) + bitswap `commits-since` delta |
 | [`kotoba-lang/chain`](https://github.com/kotoba-lang/chain) (renamed from `commit-dag`, ADR-2607050800) | chain walk + tamper/seq verification |
 | [`kotoba-lang/kotoba-client`](https://github.com/kotoba-lang/kotoba-client) | CID-verified block ingest + the generic tag-42 missing-blocks walk |
+| [`kotoba-lang/io-ipld`](https://github.com/kotoba-lang/io-ipld) | Selector Data Model/DAG-CBOR codec + bounded, CID-verifying graph traversal |
 
 The tag-42 migration ([`kotoba-lang/ipld`](https://github.com/kotoba-lang/ipld))
 is what makes this protocol small: chain `prev`, snapshot `state`, index
@@ -21,6 +22,23 @@ collapses to "hydrate the announced head CID to convergence, then
 `verify-chain`"** — there is no per-schema transfer logic anywhere.
 
 ## Protocol
+
+There are now two explicit protocol surfaces:
+
+- `kotoba.p2p.sync` is the existing Kotoba commit-chain convergence state
+  machine described below.
+- `kotoba.p2p.graphsync` is the interoperable
+  **`/ipfs/graphsync/2.0.0`** message boundary: the `gs2` IPLD Schema shape,
+  DAG-CBOR encoding, unsigned-varint stream framing, request/response metadata,
+  CID-prefix blocks, and successful bounded fulfillment through
+  `ipld.graph/select-blocks`.
+
+The GraphSync adapter supports the executable Matcher / ExploreAll /
+ExploreFields selector subset and CIDv1 DAG-CBOR SHA2-256 blocks. Other
+selector union members and block prefixes fail closed. Stream negotiation,
+multi-message scheduling, cancellation/update state, and extension semantics
+remain transport/runtime responsibilities; this landing does not claim a full
+go-graphsync engine.
 
 Five message types, all handled by the pure step
 `(sync/handle node msg) → {:node node' :effects [{:to peer :msg m} …]}`:
@@ -87,6 +105,9 @@ Tracked follow-ups, not silently omitted:
 
 - **Real wire transports** and peer discovery (Kademlia-equivalent) —
   host adapters over the effect/message seam.
+- **GraphSync scheduling and extension engines** — v2 messages and one bounded
+  request fulfillment are implemented, while pause/resume, cancellation state,
+  dedup extensions, and request queues remain above the codec.
 - **Prolly-tree range diff** — `:want-blocks` ships whole missing subtrees;
   structural diff between two roots would cut transfer for
   mostly-shared trees (the Dolt/Noms trick the superproject ADR records).

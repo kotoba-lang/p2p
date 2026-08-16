@@ -18,7 +18,9 @@
  ;; by the rename).
  :deps {io.github.kotoba-lang/net {:git/sha "20d99d1e0ed5ca4e13d00c383b7d522dd7f7bb18"}
         io.github.kotoba-lang/chain {:git/sha "60eafc3346d600b5f3d3ffd24022864841ab44ae"}
-        io.github.kotoba-lang/kotoba-client {:git/sha "92cbadab8e17eef963d948306b46b2fa54874106"}}
+        io.github.kotoba-lang/kotoba-client {:git/sha "92cbadab8e17eef963d948306b46b2fa54874106"}
+        io.github.kotoba-lang/io-ipld {:git/sha "6c74d97b347724ff61ac897766b68a731c648033"}
+        io.github.kotoba-lang/io-multiformats {:git/sha "e7ae323d3ccbb9aacc92edfd2f3dda20d9b90eed"}}
  :aliases
  {:test {:extra-paths ["test"]
          ;; e2e tests sync a REAL kotobase-peer commit chain (kotobase-engine
