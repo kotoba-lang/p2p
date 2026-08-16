@@ -43,12 +43,14 @@ responsibilities; this does not claim a full go-graphsync engine.
 
 `kotoba.p2p.graphsync-scheduler` adds the responder lifecycle above that wire
 codec: bounded active-request admission, acknowledgement, stable
-priority-ordering, block-count/byte-bounded chunks, partial/full terminal
-statuses, cancellation before unsent chunks, and extension updates. Unknown
-cancel/update messages are ignored as in go-graphsync. Admission still performs
-the complete bounded IPLD traversal eagerly; scheduling backpressures wire
-emission, not storage reads or traversal CPU. Resumable traversal remains a
-separate next layer and is not implied by this state machine.
+priority-ordering, block-count/byte-bounded chunks, partial/paused/full
+statuses, cancellation, and extension updates. Unknown cancel/update messages
+are ignored as in go-graphsync. Admission creates a read-free
+`ipld.graph/selection-cursor`; each scheduler step advances it under an explicit
+CPU work budget and reads at most one new CID-verified block. Cancelling drops
+that cursor, so neither unsent wire chunks nor future storage reads occur.
+Cursor persistence across process failure and GraphSync extension-specific
+checkpoint exchange remain host responsibilities.
 
 Five message types, all handled by the pure step
 `(sync/handle node msg) → {:node node' :effects [{:to peer :msg m} …]}`:

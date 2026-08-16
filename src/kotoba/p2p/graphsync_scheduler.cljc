@@ -1,12 +1,11 @@
 (ns kotoba.p2p.graphsync-scheduler
   "Pure bounded response scheduler for GraphSync v2 request lifecycles.
 
-  Admission performs the existing bounded, CID-verifying IPLD traversal once,
-  then retains its finite block result for priority-ordered, backpressured wire
-  emission. This makes cancellation effective before unsent chunks cross the
-  transport boundary, but is intentionally not a resumable traversal engine:
-  traversal CPU and reads happen at admission time."
-  (:require [kotoba.p2p.graphsync :as gs]))
+  Admission creates a read-free IPLD selection cursor. Scheduler steps advance
+  it under an explicit CPU budget and read at most one new CID-verified block,
+  so cancellation stops both future wire chunks and future storage reads."
+  (:require [ipld.graph :as graph]
+            [kotoba.p2p.graphsync :as gs]))
 
 (defn- invalid! [message data]
   (throw (ex-info message (assoc data :type :graphsync/invalid-scheduler))))
@@ -20,13 +19,16 @@
 
 (defn new-scheduler
   "Create an empty scheduler. Required positive limits are `:max-active`,
-  `:max-blocks-per-message`, and `:max-block-bytes-per-message`."
+  `:max-blocks-per-message`, `:max-block-bytes-per-message`, and
+  `:max-traversal-work-per-step`."
   [config]
-  (doseq [key [:max-active :max-blocks-per-message :max-block-bytes-per-message]]
+  (doseq [key [:max-active :max-blocks-per-message :max-block-bytes-per-message
+               :max-traversal-work-per-step]]
     (positive! config key))
   {:config (select-keys config
                         [:max-active :max-blocks-per-message
-                         :max-block-bytes-per-message])
+                         :max-block-bytes-per-message
+                         :max-traversal-work-per-step])
    :active {}
    :next-order 0})
 
@@ -55,7 +57,7 @@
   (> (byte-length (:bytes block))
      (get-in scheduler [:config :max-block-bytes-per-message])))
 
-(defn- admit-new [scheduler get-fn request traversal-limits]
+(defn- admit-new [scheduler request traversal-limits]
   (let [key (request-key request)]
     (cond
       (contains? (:active scheduler) key)
@@ -70,25 +72,17 @@
 
       :else
       (try
-        (let [fulfilled (gs/fulfill-request get-fn request traversal-limits)
-              blocks (vec (:blocks fulfilled))]
-          (if-let [block (first (filter #(oversized-block? scheduler %) blocks))]
-            {:scheduler scheduler
-             :response (response request (:failed-unknown gs/status))
-             :event {:type :request/rejected :reason :block-too-large
-                     :id key :cid (:cid block)}}
-            (let [entry {:request request
-                         :priority (or (:priority request) 1)
-                         :order (:next-order scheduler)
-                         :extensions (or (:extensions request) {})
-                         :blocks blocks
-                         :offset 0}]
-              {:scheduler (-> scheduler
-                              (assoc-in [:active key] entry)
-                              (update :next-order inc))
-               :response (response request (:acknowledged gs/status))
-               :event {:type :request/admitted :id key
-                       :blocks (count blocks)}})))
+        (let [entry {:request request
+                     :priority (or (:priority request) 1)
+                     :order (:next-order scheduler)
+                     :extensions (or (:extensions request) {})
+                     :cursor (graph/selection-cursor
+                              (:root request) (:selector request) traversal-limits)}]
+          {:scheduler (-> scheduler
+                          (assoc-in [:active key] entry)
+                          (update :next-order inc))
+           :response (response request (:acknowledged gs/status))
+           :event {:type :request/admitted :id key :reads 0}})
         (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
           (let [error-type (:type (ex-data error))
                 status-code (case error-type
@@ -122,7 +116,7 @@
   "Handle the request side of one decoded GraphSync message in list order.
   Returns `{:scheduler :message? :events}`. Unknown cancel/update messages are
   ignored, matching go-graphsync response-manager behavior."
-  [scheduler get-fn message traversal-limits]
+  [scheduler _get-fn message traversal-limits]
   (when-not (= #{:requests} (set (keys message)))
     (invalid! "graphsync scheduler: responder accepts request-only messages"
               {:message-keys (set (keys message))}))
@@ -130,7 +124,7 @@
         (reduce
          (fn [{:keys [scheduler responses events]} request]
            (let [handled (case (:type request)
-                           :new (admit-new scheduler get-fn request traversal-limits)
+                           :new (admit-new scheduler request traversal-limits)
                            :cancel (cancel scheduler request)
                            :update (update-extensions scheduler request)
                            (invalid! "graphsync scheduler: unknown request type"
@@ -150,51 +144,62 @@
    (sort-by (juxt (comp - :priority val) (comp :order val))
             (:active scheduler))))
 
-(defn- block-chunk [scheduler blocks offset]
-  (let [max-blocks (get-in scheduler [:config :max-blocks-per-message])
-        max-bytes (get-in scheduler [:config :max-block-bytes-per-message])]
-    (loop [index offset chunk [] bytes 0]
-      (if (or (>= index (count blocks)) (>= (count chunk) max-blocks))
-        chunk
-        (let [block (nth blocks index)
-              next-bytes (+ bytes (byte-length (:bytes block)))]
-          (if (> next-bytes max-bytes)
-            chunk
-            (recur (inc index) (conj chunk block) next-bytes)))))))
-
 (defn step
-  "Emit at most one block chunk from the highest-priority active request.
-  Equal priorities retain admission order. Returns nil message when idle."
-  [scheduler]
-  (if-let [[key {:keys [request blocks offset]}] (scheduled-entry scheduler)]
-    (let [chunk (block-chunk scheduler blocks offset)]
-      (when (empty? chunk)
-        (invalid! "graphsync scheduler: no block fits configured message budget"
-                  {:id key :offset offset}))
-      (let [next-offset (+ offset (count chunk))
-            terminal? (= next-offset (count blocks))
-            status-code (if terminal?
-                          (:completed-full gs/status)
-                          (:partial-response gs/status))
-            message {:responses [{:id (:id request)
-                                  :status status-code
-                                  :metadata (mapv (fn [{:keys [cid]}]
-                                                    {:cid cid :action :present})
-                                                  chunk)}]
-                     :blocks chunk}
-            scheduler (if terminal?
-                        (update scheduler :active dissoc key)
-                        (assoc-in scheduler [:active key :offset] next-offset))]
-        {:scheduler scheduler
-         :message message
-         :event {:type (if terminal? :response/completed :response/partial)
-                 :id key :blocks (count chunk)}}))
+  "Advance the highest-priority request under its CPU budget and emit at most
+  one newly read block. Equal priorities retain admission order."
+  [scheduler get-fn]
+  (if-let [[key {:keys [request cursor]}] (scheduled-entry scheduler)]
+    (try
+      (let [advanced (graph/advance-cursor
+                      cursor get-fn
+                      (get-in scheduler [:config :max-traversal-work-per-step]))
+            next-cursor (:cursor advanced)]
+        (cond
+          (:block advanced)
+          (let [block (:block advanced)]
+            (if (oversized-block? scheduler block)
+              {:scheduler (update scheduler :active dissoc key)
+               :message (result-message
+                         [(response request (:failed-unknown gs/status))])
+               :event {:type :request/rejected :reason :block-too-large
+                       :id key :cid (:cid block)}}
+              {:scheduler (assoc-in scheduler [:active key :cursor] next-cursor)
+               :message {:responses [{:id (:id request)
+                                      :status (:partial-response gs/status)
+                                      :metadata [{:cid (:cid block)
+                                                  :action :present}]}]
+                         :blocks [block]}
+               :event {:type :response/partial :id key :blocks 1}}))
+
+          (:done? advanced)
+          {:scheduler (update scheduler :active dissoc key)
+           :message (result-message
+                     [(response request (:completed-full gs/status))])
+           :event {:type :response/completed :id key :blocks 0}}
+
+          (:yielded? advanced)
+          {:scheduler (assoc-in scheduler [:active key :cursor] next-cursor)
+           :message (result-message [(response request (:paused gs/status))])
+           :event {:type :response/paused :reason :work-budget :id key}}
+
+          :else
+          (invalid! "graphsync scheduler: cursor made no observable progress"
+                    {:id key})) )
+      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) error
+        (let [error-type (:type (ex-data error))
+              status-code (case error-type
+                            :ipld/missing-block (:content-not-found gs/status)
+                            :ipld/resource-limit (:failed-unknown gs/status)
+                            (throw error))]
+          {:scheduler (update scheduler :active dissoc key)
+           :message (result-message [(response request status-code)])
+           :event {:type :request/failed :reason error-type :id key}})))
     {:scheduler scheduler :message nil :event {:type :scheduler/idle}}))
 
 (defn drain
   "Step until idle, bounded by positive `max-messages`. Returns emitted
   messages and the final scheduler."
-  [scheduler max-messages]
+  [scheduler get-fn max-messages]
   (when-not (and (integer? max-messages) (pos? max-messages))
     (invalid! "graphsync scheduler: positive drain limit required"
               {:max-messages max-messages}))
@@ -206,6 +211,6 @@
           (throw (ex-info "graphsync scheduler: drain limit exceeded"
                           {:type :graphsync/resource-limit
                            :limit :max-messages :maximum max-messages})))
-        (let [result (step scheduler)]
+        (let [result (step scheduler get-fn)]
           (recur (:scheduler result) (conj messages (:message result))
                  (conj events (:event result)) (dec remaining)))))))
