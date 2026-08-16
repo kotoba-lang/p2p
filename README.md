@@ -49,8 +49,11 @@ are ignored as in go-graphsync. Admission creates a read-free
 `ipld.graph/selection-cursor`; each scheduler step advances it under an explicit
 CPU work budget and reads at most one new CID-verified block. Cancelling drops
 that cursor, so neither unsent wire chunks nor future storage reads occur.
-Cursor persistence across process failure and GraphSync extension-specific
-checkpoint exchange remain host responsibilities.
+`persist-checkpoint!` writes the CID-addressed cursor through a caller-owned
+block-store capability and returns `kotoba.graphsync/checkpoint/1`; receiving
+that Link in an update fetches it with CID verification and restores only when
+request id, root, selector, and limits match. Storage replication, retention,
+and authorization remain host policy rather than extension semantics.
 
 Five message types, all handled by the pure step
 `(sync/handle node msg) → {:node node' :effects [{:to peer :msg m} …]}`:
