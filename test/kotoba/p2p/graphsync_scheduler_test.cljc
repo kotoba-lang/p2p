@@ -168,3 +168,23 @@
     (is (= 15 (get-in paused [:message :responses 0 :status])))
     (is (= :work-budget (get-in paused [:event :reason])))
     (is (some? (:message resumed)))))
+
+(deftest durable-checkpoint-is-cid-and-request-bound
+  (let [{:keys [store root]} (fixture)
+        get-fn #(get @store %)
+        request (new-request (request-id 0) root 1)
+        admitted (scheduler/handle-message (scheduler/new-scheduler config) get-fn
+                                           {:requests [request]} traversal-limits)
+        root-step (scheduler/step (:scheduler admitted) get-fn)
+        saved (scheduler/checkpoint-request (:scheduler root-step) (:id request))
+        advanced (scheduler/step (:scheduler root-step) get-fn)
+        restored (scheduler/restore-request (:scheduler advanced) (:id request)
+                                            (:cid saved) (:bytes saved))
+        replayed (scheduler/step restored get-fn)]
+    (is (= (ipld/link (:cid saved))
+           (get-in saved [:extensions scheduler/checkpoint-extension])))
+    (is (= (get-in advanced [:message :blocks 0 :cid])
+           (get-in replayed [:message :blocks 0 :cid])))
+    (is (thrown? #?(:clj Exception :cljs js/Error)
+                 (scheduler/restore-request (:scheduler advanced) (:id request)
+                                            root (:bytes saved))))))
