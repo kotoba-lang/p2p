@@ -142,18 +142,28 @@ are unaffected. This namespace carries no crypto/identity scheme of its
 own — `kotoba-lang/kotoba-rad`'s `kotoba-rad.announce` provides a
 did:key/sigref-based pair of hooks that plug in here directly.
 
-## What is NOT in this landing
+## Profile boundary
 
-Tracked follow-ups, not silently omitted:
+The implemented GraphSync profile is complete for bounded CIDv1 DAG-CBOR
+selection over authenticated TCP/Noise/Yamux: the v2 wire codec, request queue,
+priority scheduling, pause/partial/full status, cancellation, extension update,
+checkpoint persistence/restore, signed replica receipts, and CID-verified real
+socket requester/responder path are all present and tested.
 
-- **Real wire transports** and peer discovery (Kademlia-equivalent) —
-  host adapters over the effect/message seam.
-- **GraphSync scheduling and extension engines** — v2 messages and one bounded
-  request fulfillment are implemented, while pause/resume, cancellation state,
-  dedup extensions, and request queues remain above the codec.
-- **Prolly-tree range diff** — `:want-blocks` ships whole missing subtrees;
-  structural diff between two roots would cut transfer for
-  mostly-shared trees (the Dolt/Noms trick the superproject ADR records).
+The following are deliberately outside that correctness profile, rather than
+unfinished parts of it:
+
+- **Alternate transports and ambient reachability** — QUIC, WebRTC,
+  WebTransport, relay/NAT traversal, and autonomous peer discovery belong to
+  the host transport profile. `io-libp2p` supplies the current TCP/Noise/Yamux
+  seam plus Kademlia protocol primitives; configured peer addresses remain a
+  deployment responsibility.
+- **Optional GraphSync extensions beyond the checkpoint contract** — an
+  extension must define its own bounded semantics and admission policy before
+  it is enabled; unknown extensions do not silently gain authority.
+- **Prolly-tree range diff** — `:want-blocks` can ship a whole missing subtree.
+  Structural diff between mostly-shared roots is a transfer optimization, not
+  a safety or convergence requirement.
 
 ## Test
 
