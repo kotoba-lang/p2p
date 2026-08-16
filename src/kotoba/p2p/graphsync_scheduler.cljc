@@ -64,6 +64,16 @@
       {:cid cid :bytes bytes
        :extensions {checkpoint-extension (link/link cid)}})))
 
+(defn persist-checkpoint!
+  "Persist one active request checkpoint through caller-owned `put-fn` and
+  return the CID extension plus the host receipt. `put-fn` receives CID, bytes."
+  [scheduler request-id put-fn]
+  (when-not (fn? put-fn)
+    (invalid! "graphsync scheduler: checkpoint persistence requires put-fn" {}))
+  (let [{:keys [cid bytes] :as checkpoint}
+        (checkpoint-request scheduler request-id)]
+    (assoc checkpoint :receipt (put-fn cid bytes))))
+
 (defn restore-request
   "Restore an active request from CID-bound checkpoint bytes. Request id,
   root, selector, and traversal limits must all match the admitted request."
@@ -86,6 +96,19 @@
         (invalid! "graphsync scheduler: checkpoint request binding mismatch"
                   {:expected expected :actual actual}))
       (assoc-in scheduler [:active key :cursor] cursor))))
+
+(defn- restore-from-extension [scheduler get-fn request]
+  (if-let [checkpoint-link (get (:extensions request) checkpoint-extension)]
+    (do
+      (when-not (link/link? checkpoint-link)
+        (invalid! "graphsync scheduler: checkpoint extension must be an IPLD Link"
+                  {:value checkpoint-link}))
+      (let [cid (link/link-cid checkpoint-link)
+            bytes (or (ipld/get-verified-block get-fn cid)
+                      (throw (ex-info "graphsync scheduler: checkpoint block is missing"
+                                      {:type :ipld/missing-block :cid cid})))]
+        (restore-request scheduler (:id request) cid bytes)))
+    scheduler))
 
 (defn- request-key [request]
   (vec (:id request)))
@@ -149,13 +172,15 @@
       {:scheduler scheduler
        :event {:type :request/ignored :reason :unknown-cancel :id key}})))
 
-(defn- update-extensions [scheduler request]
+(defn- update-extensions [scheduler get-fn request]
   (let [key (request-key request)]
     (if (contains? (:active scheduler) key)
-      {:scheduler (update-in scheduler [:active key :extensions]
-                             merge (:extensions request))
-       :event {:type :request/updated :id key
-               :extensions (set (keys (:extensions request)))}}
+      (let [restored? (contains? (:extensions request) checkpoint-extension)
+            scheduler (restore-from-extension scheduler get-fn request)]
+        {:scheduler (update-in scheduler [:active key :extensions]
+                               merge (:extensions request))
+         :event {:type (if restored? :request/restored :request/updated)
+                 :id key :extensions (set (keys (:extensions request)))}})
       {:scheduler scheduler
        :event {:type :request/ignored :reason :unknown-update :id key}})))
 
@@ -163,7 +188,7 @@
   "Handle the request side of one decoded GraphSync message in list order.
   Returns `{:scheduler :message? :events}`. Unknown cancel/update messages are
   ignored, matching go-graphsync response-manager behavior."
-  [scheduler _get-fn message traversal-limits]
+  [scheduler get-fn message traversal-limits]
   (when-not (= #{:requests} (set (keys message)))
     (invalid! "graphsync scheduler: responder accepts request-only messages"
               {:message-keys (set (keys message))}))
@@ -173,7 +198,7 @@
            (let [handled (case (:type request)
                            :new (admit-new scheduler request traversal-limits)
                            :cancel (cancel scheduler request)
-                           :update (update-extensions scheduler request)
+                           :update (update-extensions scheduler get-fn request)
                            (invalid! "graphsync scheduler: unknown request type"
                                      {:request request}))]
              {:scheduler (:scheduler handled)

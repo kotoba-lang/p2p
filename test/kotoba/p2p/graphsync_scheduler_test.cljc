@@ -188,3 +188,32 @@
     (is (thrown? #?(:clj Exception :cljs js/Error)
                  (scheduler/restore-request (:scheduler advanced) (:id request)
                                             root (:bytes saved))))))
+
+(deftest checkpoint-extension-persists-fetches-verifies-and-restores
+  (let [{:keys [store root]} (fixture)
+        checkpoints (atom {})
+        get-fn #(or (get @store %) (get @checkpoints %))
+        request (new-request (request-id 0) root 1)
+        admitted (scheduler/handle-message (scheduler/new-scheduler config) get-fn
+                                           {:requests [request]} traversal-limits)
+        root-step (scheduler/step (:scheduler admitted) get-fn)
+        saved (scheduler/persist-checkpoint!
+               (:scheduler root-step) (:id request)
+               (fn [cid bytes] (swap! checkpoints assoc cid bytes) :stored))
+        advanced (scheduler/step (:scheduler root-step) get-fn)
+        updated (scheduler/handle-message
+                 (:scheduler advanced) get-fn
+                 {:requests [{:id (:id request) :type :update
+                              :extensions (:extensions saved)}]}
+                 traversal-limits)
+        replayed (scheduler/step (:scheduler updated) get-fn)]
+    (is (= :stored (:receipt saved)))
+    (is (= :request/restored (get-in updated [:events 0 :type])))
+    (is (= (get-in advanced [:message :blocks 0 :cid])
+           (get-in replayed [:message :blocks 0 :cid])))
+    (is (thrown? #?(:clj Exception :cljs js/Error)
+                 (scheduler/handle-message
+                  (:scheduler root-step) get-fn
+                  {:requests [{:id (:id request) :type :update
+                               :extensions {scheduler/checkpoint-extension "not-a-link"}}]}
+                  traversal-limits)))))
