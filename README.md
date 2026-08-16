@@ -55,6 +55,13 @@ that Link in an update fetches it with CID verification and restores only when
 request id, root, selector, and limits match. Storage replication, retention,
 and authorization remain host policy rather than extension semantics.
 
+`kotoba.p2p.graphsync-checkpoint-store` supplies the bounded local policy
+state: mandatory per-item/count/total-byte limits, TTL leases, explicit GC
+receipts, and a required host authorization hook on put/get/gc. Its canonical
+snapshot survives process restart. GC returns CIDs and reclaimed bytes; a host
+must perform and verify physical deletion. No replication or HA claim follows
+from a local snapshot.
+
 Five message types, all handled by the pure step
 `(sync/handle node msg) → {:node node' :effects [{:to peer :msg m} …]}`:
 
