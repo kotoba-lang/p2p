@@ -33,12 +33,13 @@ There are now two explicit protocol surfaces:
   CID-prefix blocks, and successful bounded fulfillment through
   `ipld.graph/select-blocks`.
 
-The GraphSync adapter supports the executable Matcher / ExploreAll /
-ExploreFields selector subset and CIDv1 DAG-CBOR SHA2-256 blocks. Other
-selector union members and block prefixes fail closed. Stream negotiation,
-multi-message scheduling, cancellation/update state, and extension semantics
-remain transport/runtime responsibilities; this landing does not claim a full
-go-graphsync engine.
+The GraphSync adapter supports Matcher, ExploreAll, ExploreFields,
+ExploreIndex, ExploreRange, ExploreUnion, ExploreRecursive, and
+ExploreRecursiveEdge plus CIDv1 DAG-CBOR SHA2-256 blocks. Recursive requests
+remain subject to mandatory traversal budgets. Draft conditions and other
+block prefixes fail closed. Stream negotiation, multi-message scheduling,
+cancellation/update state, and extension semantics remain transport/runtime
+responsibilities; this does not claim a full go-graphsync engine.
 
 Five message types, all handled by the pure step
 `(sync/handle node msg) → {:node node' :effects [{:to peer :msg m} …]}`:
