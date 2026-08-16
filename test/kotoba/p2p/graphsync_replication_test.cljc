@@ -1,6 +1,7 @@
 (ns kotoba.p2p.graphsync-replication-test
   (:require #?(:clj [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer [deftest is testing] :include-macros true])
+            [ipld.core :as ipld]
             [kotoba.p2p.graphsync-replication :as replication]))
 
 (def config {:replication-factor 2 :max-replicas 3 :receipt-ttl-ms 100})
@@ -45,3 +46,38 @@
                      (replication/record-receipt
                       tracker {:cid cid :replica-id "a" :stored-at-ms 0} 0
                       (constantly false))))))))
+
+(deftest execution-lands-bytes-and-qualifies-only-verified-successes
+  (let [bytes (ipld/encode {"checkpoint" 1})
+        cid (ipld/cid bytes)
+        stores (atom {"a" {} "b" {}})
+        planned (replication/plan-replication
+                 (replication/new-tracker config) cid ["a" "b"] "owner" allow)
+        replicate-fn (fn [replica-id receipt-cid receipt-bytes now-ms]
+                       (swap! stores assoc-in [replica-id receipt-cid] receipt-bytes)
+                       {:cid receipt-cid :replica-id replica-id
+                        :stored-at-ms now-ms :signature [1 2 3]})
+        executed (replication/execute-effects
+                  (:tracker planned) cid bytes (:effects planned) 10
+                  replicate-fn #(= [1 2 3] (:signature %)))]
+    (is (empty? (:failures executed)))
+    (is (= 2 (count (:receipts executed))))
+    (is (every? #(= (vec bytes) (vec (get-in @stores [% cid]))) ["a" "b"]))
+    (is (get-in executed [:qualification :qualified?])))
+
+  (testing "one transport failure leaves the checkpoint unqualified"
+    (let [bytes (ipld/encode {"checkpoint" 2})
+          cid (ipld/cid bytes)
+          planned (replication/plan-replication
+                   (replication/new-tracker config) cid ["a" "b"] "owner" allow)
+          executed (replication/execute-effects
+                    (:tracker planned) cid bytes (:effects planned) 10
+                    (fn [replica-id receipt-cid _ now-ms]
+                      (if (= "b" replica-id)
+                        (throw (ex-info "offline" {:type :transport/offline}))
+                        {:cid receipt-cid :replica-id replica-id
+                         :stored-at-ms now-ms :signature [1]}))
+                    (constantly true))]
+      (is (= [{:replica-id "b" :reason :transport/offline}]
+             (:failures executed)))
+      (is (false? (get-in executed [:qualification :qualified?]))))))
