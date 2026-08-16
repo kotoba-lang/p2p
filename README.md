@@ -62,6 +62,13 @@ snapshot survives process restart. GC returns CIDs and reclaimed bytes; a host
 must perform and verify physical deletion. No replication or HA claim follows
 from a local snapshot.
 
+`kotoba.p2p.graphsync-replication` turns checkpoint replication into explicit
+host effects and evidence. Placement is capability-authorized; receipts count
+only from planned, distinct replica identities after a host signature verifier
+accepts them. `qualification` is true only while the configured number of
+receipts remain unexpired. Candidate nodes, transfer attempts, duplicate
+receipts, or stale receipts never imply availability.
+
 Five message types, all handled by the pure step
 `(sync/handle node msg) → {:node node' :effects [{:to peer :msg m} …]}`:
 
