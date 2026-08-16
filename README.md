@@ -75,6 +75,14 @@ explicit and cannot contribute to qualification. The adapter is transport
 neutral; an in-memory two-store integration test proves byte landing, not a
 live network or production HA deployment.
 
+`kotoba.p2p.graphsync-stream` closes the real transport seam without coupling
+GraphSync to a socket implementation. It registers `/ipfs/graphsync/2.0.0` as
+an `io-libp2p` custom protocol, authorizes the PeerId proven by Noise before
+reading application bytes, drives the bounded scheduler, and CID-verifies each
+block before the requester lands it. The integration suite crosses real OS TCP,
+Noise XX, Yamux, and multistream between independent block stores; this is a
+single-host interoperability slice, not yet multi-machine availability proof.
+
 Five message types, all handled by the pure step
 `(sync/handle node msg) → {:node node' :effects [{:to peer :msg m} …]}`:
 
