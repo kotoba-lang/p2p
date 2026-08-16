@@ -8,7 +8,8 @@
             [ipld.graph :as graph]
             [ipld.link :as link]
             [ipld.value :as value]
-            [kotoba.p2p.graphsync :as gs]))
+            [kotoba.p2p.graphsync :as gs]
+            [kotoba.p2p.graphsync-extension :as extension]))
 
 (def checkpoint-extension "kotoba.graphsync/checkpoint/1")
 
@@ -30,12 +31,24 @@
   (doseq [key [:max-active :max-blocks-per-message :max-block-bytes-per-message
                :max-traversal-work-per-step]]
     (positive! config key))
-  {:config (select-keys config
-                        [:max-active :max-blocks-per-message
-                         :max-block-bytes-per-message
-                         :max-traversal-work-per-step])
+  (let [checkpoint-spec
+        {:phases #{:update}
+         :validate (fn [value]
+                     (when-not (link/link? value)
+                       (invalid! "graphsync scheduler: checkpoint extension must be an IPLD Link"
+                                 {:value value}))
+                     value)}
+        registry (extension/registry
+                  (positive! config :max-extensions)
+                  (assoc (or (:extension-specs config) {})
+                         checkpoint-extension checkpoint-spec))]
+    {:config (assoc (select-keys config
+                                 [:max-active :max-blocks-per-message
+                                  :max-block-bytes-per-message
+                                  :max-traversal-work-per-step])
+                    :extension-registry registry)
    :active {}
-   :next-order 0})
+   :next-order 0}))
 
 (defn active-count [scheduler]
   (count (:active scheduler)))
@@ -142,7 +155,11 @@
 
       :else
       (try
-        (let [entry {:request request
+        (let [extensions (extension/admit
+                          (get-in scheduler [:config :extension-registry])
+                          :new (:extensions request))
+              request (assoc request :extensions extensions)
+              entry {:request request
                      :priority (or (:priority request) 1)
                      :order (:next-order scheduler)
                      :extensions (or (:extensions request) {})
@@ -158,6 +175,7 @@
                 status-code (case error-type
                               :ipld/missing-block (:content-not-found gs/status)
                               :ipld/resource-limit (:failed-unknown gs/status)
+                              :graphsync/extension-rejected (:rejected gs/status)
                               (throw error))]
             {:scheduler scheduler
              :response (response request status-code)
@@ -175,7 +193,11 @@
 (defn- update-extensions [scheduler get-fn request]
   (let [key (request-key request)]
     (if (contains? (:active scheduler) key)
-      (let [restored? (contains? (:extensions request) checkpoint-extension)
+      (let [extensions (extension/admit
+                        (get-in scheduler [:config :extension-registry])
+                        :update (:extensions request))
+            request (assoc request :extensions extensions)
+            restored? (contains? extensions checkpoint-extension)
             scheduler (restore-from-extension scheduler get-fn request)]
         {:scheduler (update-in scheduler [:active key :extensions]
                                merge (:extensions request))
