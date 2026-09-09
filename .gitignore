@@ -3,3 +3,6 @@ out/
 shadow-cljs.edn
 .shadow-cljs/
 .cpcache/
+
+# nbb dependency cache -- a build artifact, not source
+.nbb/
