@@ -189,7 +189,7 @@ re-read via prolly-tree on the receiver's store, three-node line topology
 inertness, and a lying-peer safety/termination case.
 
 ```bash
-clojure -M:test                     # JVM
+kbb -M:test                     # JVM
 npm install && npm run test:cljs    # real ClojureScript (shadow-cljs node-test)
 ```
 
