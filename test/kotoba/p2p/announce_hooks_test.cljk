@@ -3,7 +3,7 @@
   hooks, independent of the e2e kotobase-peer chain machinery the main
   sync_test.cljc suite uses -- these only need to observe what handle
   decides to do with a message, not a real converging graph."
-  (:require #?(:clj [clojure.test :refer [deftest is testing]]
+  (:require #?(:clj [kotoba.test :refer [deftest is testing]]
                :cljs [cljs.test :refer [deftest is testing] :include-macros true])
             [kotoba.p2p.sync :as sync]))
 

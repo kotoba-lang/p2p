@@ -1,5 +1,5 @@
 (ns kotoba.p2p.graphsync-prolly-test
-  (:require #?(:clj [clojure.test :refer [deftest is testing]]
+  (:require #?(:clj [kotoba.test :refer [deftest is testing]]
                :cljs [cljs.test :refer [deftest is testing] :include-macros true])
             [ipld.link :as link]
             [kotoba.p2p.graphsync :as gs]

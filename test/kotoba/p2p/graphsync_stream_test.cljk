@@ -1,5 +1,5 @@
 (ns kotoba.p2p.graphsync-stream-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [ed25519.core :as ed]
             [ipld.core :as ipld]
             [kotoba.net.libp2p.dial :as dial]
