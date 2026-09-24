@@ -2,7 +2,7 @@
   "End-to-end protocol tests over the loopback transport, with real data:
   kotobase-engine transact/commit! on the source node, tag-42 hydrate +
   verify-chain on the receivers."
-  (:require #?(:clj [clojure.test :refer [deftest is testing]]
+  (:require #?(:clj [kotoba.test :refer [deftest is testing]]
                :cljs [cljs.test :refer [deftest is testing] :include-macros true])
             [kotoba.p2p.sync :as sync]
             [kotoba.p2p.loopback :as lb]
