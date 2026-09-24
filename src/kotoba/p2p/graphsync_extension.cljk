@@ -4,7 +4,7 @@
   The wire codec deliberately carries arbitrary IPLD values. This registry is
   the authority boundary: only explicitly registered names, phases, and value
   validators are admitted by a responder runtime."
-  (:require [clojure.set :as set]))
+  (:require [kotoba.lang.coll :as set]))
 
 (def valid-phases #{:new :update :response})
 
